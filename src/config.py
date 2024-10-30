@@ -15,6 +15,7 @@ CONFIG = {
     'gravity': 0.0,       # Gravity affecting the ball (pixels/s²)
     'use_icon': True,     # Whether to use icon.png instead of circle
     'icon_size': 64,      # Size of the icon in pixels (both width and height)
+    'bg_opacity': 0.5,    # Background video opacity (0.0 to 1.0)
 }
 
 # Calculate maximum ring radius to fit window

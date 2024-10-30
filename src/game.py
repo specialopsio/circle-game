@@ -1,12 +1,13 @@
 import pygame
 import colorsys
 import math
+import os
+import cv2
 from src.config import CONFIG
 from src.utils.vector import Vector2
 from src.entities.ball import Ball
 from src.entities.ring import Ring
 from src.managers.audio_manager import AudioManager
-from src.recorder import GameRecorder
 from typing import List, Tuple
 
 class Game:
@@ -19,8 +20,6 @@ class Game:
         
         self.center = Vector2(self.width/2, self.height/2)
         self.ball = Ball(self.center, 8)
-        # Give the ball an initial bounce
-        self.ball.vel = Vector2(0, -1).normalize() * CONFIG['ball_speed']
         self.rings: List[Ring] = []
         self.audio = AudioManager()
         self.active_ring_index = 0  # Track the innermost active ring
@@ -28,9 +27,74 @@ class Game:
         
         self.clock = pygame.time.Clock()
         self.game_won = False
+        self.game_started = False
         
-        # Initialize the recorder
-        self.recorder = GameRecorder(self.width, self.height)
+        # Video background setup
+        self.bg_video = None
+        self.bg_surface = None
+        if os.path.exists('bg.mp4'):
+            self.setup_video_background()
+    
+    def setup_video_background(self):
+        """Initialize video background if bg.mp4 exists"""
+        try:
+            self.bg_video = cv2.VideoCapture('bg.mp4')
+            if not self.bg_video.isOpened():
+                print("Warning: Could not open bg.mp4")
+                return
+            
+            # Create a pygame surface for the video frame
+            self.bg_surface = pygame.Surface((self.width, self.height))
+            print("Successfully loaded background video")
+        except Exception as e:
+            print(f"Warning: Error setting up video background: {str(e)}")
+            self.bg_video = None
+    
+    def update_video_background(self):
+        """Update the video frame"""
+        if self.bg_video is None or self.bg_surface is None:
+            return
+        
+        ret, frame = self.bg_video.read()
+        if not ret:
+            # Video ended, loop back to start
+            self.bg_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = self.bg_video.read()
+        
+        if ret:
+            # Calculate scaling to match height while maintaining aspect ratio
+            video_height = frame.shape[0]
+            video_width = frame.shape[1]
+            scale_factor = self.height / video_height
+            new_width = int(video_width * scale_factor)
+            
+            # Resize frame
+            frame = cv2.resize(frame, (new_width, self.height))
+            
+            # Center the frame horizontally
+            x_offset = max(0, (new_width - self.width) // 2)
+            frame = frame[:, x_offset:x_offset + self.width] if new_width > self.width else frame
+            
+            # Convert from BGR to RGBA
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+            
+            # Apply opacity
+            frame[:, :, 3] = int(255 * CONFIG['bg_opacity'])
+            
+            # Convert to pygame surface with alpha
+            video_surface = pygame.surface.Surface((frame.shape[1], frame.shape[0]), pygame.SRCALPHA)
+            pygame_array = pygame.surfarray.pixels_alpha(video_surface)
+            pygame_array[:] = frame[:, :, 3].T
+            del pygame_array
+            
+            pygame_surface_rgb = pygame.surfarray.make_surface(frame[:, :, :3].swapaxes(0, 1))
+            video_surface.blit(pygame_surface_rgb, (0, 0))
+            
+            # Scale to fit screen if needed
+            if video_surface.get_size() != (self.width, self.height):
+                video_surface = pygame.transform.scale(video_surface, (self.width, self.height))
+            
+            self.bg_surface = video_surface
     
     def get_ring_color(self, index: int, total: int) -> Tuple[int, int, int]:
         hue = index / total
@@ -49,6 +113,13 @@ class Game:
                        CONFIG['gap_size'], color)
             self.rings.append(ring)
         self.rings.sort(key=lambda r: r.radius)
+    
+    def start_game(self):
+        """Initialize game state when space is pressed"""
+        self.game_started = True
+        # Give the ball an initial bounce
+        self.ball.vel = Vector2(0, -1).normalize() * CONFIG['ball_speed']
+        self.audio.reset_song_sequence()
     
     def get_innermost_active_ring(self) -> int:
         for i, ring in enumerate(self.rings):
@@ -102,6 +173,9 @@ class Game:
         self.check_gap_collision()
     
     def update_game_state(self, dt: float):
+        if not self.game_started:
+            return
+            
         if not self.game_won:
             self.ball.update(dt)
             
@@ -115,27 +189,39 @@ class Game:
                 self.game_won = True
     
     def draw(self):
+        # Start with a black background
         self.screen.fill((0, 0, 0))
         
+        # Draw video background if available
+        if self.bg_surface is not None:
+            self.screen.blit(self.bg_surface, (0, 0))
+        
+        # Draw game elements on top
         for ring in self.rings:
             ring.draw(self.screen)
         
         self.ball.draw(self.screen)
         
-        if self.game_won:
+        if not self.game_started:
+            font = pygame.font.Font(None, 74)
+            text = font.render('Press SPACE to Start', True, (255, 255, 255))
+            text_rect = text.get_rect(center=(self.width/2, self.height/2))
+            self.screen.blit(text, text_rect)
+        elif self.game_won:
             font = pygame.font.Font(None, 74)
             text = font.render('Escaped!', True, (255, 255, 255))
             text_rect = text.get_rect(center=(self.width/2, self.height/2))
             self.screen.blit(text, text_rect)
         
-        # Capture frame before display flip
-        self.recorder.capture_frame(self.screen)
         pygame.display.flip()
     
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE and not self.game_started:
+                    self.start_game()
         return True
     
     def run(self):
@@ -155,6 +241,10 @@ class Game:
             
             running = self.handle_events()
             self.update_game_state(dt)
+            
+            # Update video background
+            self.update_video_background()
+            
             self.draw()
             
             # Calculate how long to wait
@@ -165,6 +255,8 @@ class Game:
             # Update display at exactly 60fps
             self.clock.tick(target_fps)
         
-        # Stop recording before quitting
-        self.recorder.stop_recording()
+        # Clean up video capture
+        if self.bg_video is not None:
+            self.bg_video.release()
+        
         pygame.quit()
