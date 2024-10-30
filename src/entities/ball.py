@@ -13,8 +13,23 @@ class Ball:
         self.radius = radius
         self.base_radius = radius
         self.trail: List[Tuple[Vector2, float]] = []
-        self.trail_length = 10
+        self.trail_length = 5
         self.restitution = 0.98
+        
+        # Try to load the icon if enabled
+        self.icon = None
+        if CONFIG['use_icon']:
+            try:
+                self.icon = pygame.image.load('icon.png').convert_alpha()
+                # Scale the icon to the configured size
+                icon_size = CONFIG['icon_size']
+                self.icon = pygame.transform.smoothscale(self.icon, (icon_size, icon_size))
+                # Adjust the radius to match half the icon size
+                self.radius = icon_size / 2
+                self.base_radius = self.radius
+            except:
+                print("Warning: Could not load icon.png, falling back to circle")
+                CONFIG['use_icon'] = False
     
     def bounce(self, normal: Vector2):
         random_angle = random.uniform(-0.2, 0.2)
@@ -48,7 +63,7 @@ class Ball:
         
         self.pos += self.vel * dt
         
-        self.trail.insert(0, (Vector2(self.pos.x, self.pos.y), 1.0))
+        self.trail.insert(0, (Vector2(self.pos.x, self.pos.y), 0.4))
         if len(self.trail) > self.trail_length:
             self.trail.pop()
         
@@ -57,12 +72,26 @@ class Ball:
     
     def draw(self, screen: pygame.Surface):
         for pos, alpha in self.trail:
-            radius = self.radius * alpha
-            color = (255, 255, 255, int(255 * alpha))
-            surf = pygame.Surface((int(radius * 2), int(radius * 2)), pygame.SRCALPHA)
-            pygame.draw.circle(surf, color, (radius, radius), radius)
-            screen.blit(surf, (int(pos.x - radius), int(pos.y - radius)))
+            if not CONFIG['use_icon'] or not self.icon:
+                # Draw regular circle trail
+                radius = self.radius * alpha
+                color = (255, 255, 255, int(255 * alpha))
+                surf = pygame.Surface((int(radius * 2), int(radius * 2)), pygame.SRCALPHA)
+                pygame.draw.circle(surf, color, (radius, radius), radius)
+                screen.blit(surf, (int(pos.x - radius), int(pos.y - radius)))
+            else:
+                # Draw icon trail with transparency
+                scaled_icon = self.icon.copy()
+                scaled_icon.set_alpha(int(255 * alpha))
+                icon_rect = scaled_icon.get_rect(center=(pos.x, pos.y))
+                screen.blit(scaled_icon, icon_rect)
         
-        pygame.draw.circle(screen, (255, 255, 255), 
-                         (int(self.pos.x), int(self.pos.y)), 
-                         int(self.radius))
+        if not CONFIG['use_icon'] or not self.icon:
+            # Draw regular circle ball
+            pygame.draw.circle(screen, (255, 255, 255), 
+                             (int(self.pos.x), int(self.pos.y)), 
+                             int(self.radius))
+        else:
+            # Draw icon ball
+            icon_rect = self.icon.get_rect(center=(self.pos.x, self.pos.y))
+            screen.blit(self.icon, icon_rect)

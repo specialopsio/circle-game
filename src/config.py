@@ -13,6 +13,8 @@ CONFIG = {
     'gap_size': .75,      # Gap size in radians (0.25 = PI/4 = 45 degrees)
     'max_ring_radius': 0, # Will be calculated based on window size
     'gravity': 0.0,       # Gravity affecting the ball (pixels/s²)
+    'use_icon': True,     # Whether to use icon.png instead of circle
+    'icon_size': 64,      # Size of the icon in pixels (both width and height)
 }
 
 # Calculate maximum ring radius to fit window
