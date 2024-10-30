@@ -4,7 +4,7 @@ CONFIG = {
     'height': 1280,       # Window height
     'rings': 25,          # Number of rings
     'rotation': 1.5,      # Base rotation speed
-    'ball_speed': 500,    # Initial ball speed
+    'ball_speed': 750,    # Initial ball speed
     'offset': 0.1,        # Rotation offset between rings
     'grow': True,         # Whether ball grows on collision
     'grow_size': 0.005,   # How much the ball grows on collision (pixels)

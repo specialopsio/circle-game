@@ -12,67 +12,112 @@ class Ball:
                           random.uniform(-1, 1)).normalize() * CONFIG['ball_speed']
         self.radius = radius
         self.base_radius = radius
-        self.trail: List[Tuple[Vector2, float]] = []
+        self.trail: List[Tuple[Vector2, float, float]] = []
         self.trail_length = 5
         self.restitution = 0.98
-        self.rotation = 0.0  # Current rotation in degrees
-        self.angular_velocity = 0.0  # Current rotation speed in degrees/second
+        self.rotation = 0.0
+        self.angular_velocity = 0.0
+        self.last_bounce_pos = None
+        self.consecutive_bounces = 0
+        self.last_bounce_time = 0
         
         # Try to load the icon if enabled
         self.icon = None
         if CONFIG['use_icon']:
             try:
                 self.icon = pygame.image.load('icon.png').convert_alpha()
-                # Scale the icon to the configured size
                 icon_size = CONFIG['icon_size']
                 self.icon = pygame.transform.smoothscale(self.icon, (icon_size, icon_size))
-                # Adjust the radius to match half the icon size
                 self.radius = icon_size / 2
                 self.base_radius = self.radius
             except:
                 print("Warning: Could not load icon.png, falling back to circle")
                 CONFIG['use_icon'] = False
     
+    def is_edge_rolling(self, normal: Vector2) -> bool:
+        """Detect if the ball is rolling along an edge"""
+        current_time = pygame.time.get_ticks() / 1000.0
+        
+        # Check if this bounce is very close to the last bounce
+        if self.last_bounce_pos is not None:
+            distance_to_last = (self.pos - self.last_bounce_pos).length()
+            time_since_last = current_time - self.last_bounce_time
+            
+            if distance_to_last < self.radius * 4 and time_since_last < 0.1:
+                self.consecutive_bounces += 1
+            else:
+                self.consecutive_bounces = 0
+        
+        self.last_bounce_pos = Vector2(self.pos.x, self.pos.y)
+        self.last_bounce_time = current_time
+        
+        return self.consecutive_bounces >= 2
+    
+    def get_escape_vector(self, normal: Vector2) -> Vector2:
+        """Calculate a vector to escape edge rolling"""
+        # Get perpendicular direction to the normal
+        perpendicular = Vector2(-normal.y, normal.x)
+        
+        # Add a strong outward component and some randomness
+        escape_angle = math.radians(random.uniform(30, 60))
+        escape_dir = Vector2(
+            normal.x * math.cos(escape_angle) + perpendicular.x * math.sin(escape_angle),
+            normal.y * math.cos(escape_angle) + perpendicular.y * math.sin(escape_angle)
+        )
+        
+        return escape_dir.normalize()
+    
     def bounce(self, normal: Vector2):
-        # Get the current velocity angle
-        current_angle = math.degrees(math.atan2(self.vel.y, self.vel.x))
-        
-        # Calculate the angle between the velocity and the normal
-        dot_product = self.vel.x * normal.x + self.vel.y * normal.y
-        bounce_angle = math.degrees(math.acos(max(-1.0, min(1.0, dot_product / self.vel.length()))))
-        
-        # If the bounce angle is too shallow, adjust it
-        if bounce_angle < CONFIG['minimum_bounce_angle']:
-            # Calculate new bounce direction
-            perpendicular = Vector2(-normal.y, normal.x)
-            sign = 1 if self.vel.x * perpendicular.x + self.vel.y * perpendicular.y > 0 else -1
-            min_angle_rad = math.radians(CONFIG['minimum_bounce_angle'])
-            new_dir = Vector2(
-                normal.x * math.cos(min_angle_rad) + sign * perpendicular.x * math.sin(min_angle_rad),
-                normal.y * math.cos(min_angle_rad) + sign * perpendicular.y * math.sin(min_angle_rad)
-            )
-            self.vel = new_dir.normalize() * self.vel.length()
+        if self.is_edge_rolling(normal):
+            # If we detect edge rolling, use escape vector
+            escape_dir = self.get_escape_vector(normal)
+            self.vel = escape_dir * (CONFIG['ball_speed'] * 1.2)  # Slightly faster to ensure escape
+            self.consecutive_bounces = 0
         else:
-            # Regular bounce calculation
+            # Regular bounce logic with improved angle handling
             dot_product = self.vel.x * normal.x + self.vel.y * normal.y
-            self.vel = Vector2(
-                self.vel.x - 2 * dot_product * normal.x,
-                self.vel.y - 2 * dot_product * normal.y
-            )
-        
-        # Apply restitution
-        speed = self.vel.length()
-        self.vel = self.vel.normalize() * (speed * self.restitution)
-        
-        # Ensure minimum speed
-        if self.vel.length() < CONFIG['ball_speed'] * 0.5:
-            self.vel = self.vel.normalize() * CONFIG['ball_speed']
+            bounce_angle = math.degrees(math.acos(max(-1.0, min(1.0, dot_product / self.vel.length()))))
+            
+            # Add more randomness for shallow angles
+            random_angle = random.uniform(-15, 15) if bounce_angle < 45 else random.uniform(-5, 5)
+            
+            if bounce_angle < CONFIG['minimum_bounce_angle']:
+                # More aggressive angle adjustment for shallow bounces
+                perpendicular = Vector2(-normal.y, normal.x)
+                sign = 1 if self.vel.x * perpendicular.x + self.vel.y * perpendicular.y > 0 else -1
+                min_angle_rad = math.radians(CONFIG['minimum_bounce_angle'] + random.uniform(10, 25))
+                
+                new_dir = Vector2(
+                    normal.x * math.cos(min_angle_rad) + sign * perpendicular.x * math.sin(min_angle_rad),
+                    normal.y * math.cos(min_angle_rad) + sign * perpendicular.y * math.sin(min_angle_rad)
+                )
+                self.vel = new_dir.normalize() * (CONFIG['ball_speed'] * random.uniform(1.0, 1.2))
+            else:
+                # Regular bounce with added randomness
+                rot_angle = math.radians(random_angle)
+                cos_theta = math.cos(rot_angle)
+                sin_theta = math.sin(rot_angle)
+                
+                rotated_normal = Vector2(
+                    normal.x * cos_theta - normal.y * sin_theta,
+                    normal.x * sin_theta + normal.y * cos_theta
+                )
+                
+                dot_product = self.vel.x * rotated_normal.x + self.vel.y * rotated_normal.y
+                self.vel = Vector2(
+                    self.vel.x - 2 * dot_product * rotated_normal.x,
+                    self.vel.y - 2 * dot_product * rotated_normal.y
+                )
+                
+                # Ensure minimum velocity and add some randomness
+                speed = self.vel.length() * random.uniform(0.95, 1.05)
+                self.vel = self.vel.normalize() * max(speed, CONFIG['ball_speed'] * 0.8)
         
         # Apply tumble if enabled
         if CONFIG['tumble']:
-            # Calculate tumble direction based on bounce angle
-            tumble_direction = 1 if bounce_angle > 90 else -1
-            self.angular_velocity = CONFIG['tumble_velocity'] * tumble_direction
+            tumble_direction = random.choice([-1, 1])  # Randomize tumble direction
+            random_multiplier = random.uniform(0.8, 1.2)
+            self.angular_velocity = CONFIG['tumble_velocity'] * tumble_direction * random_multiplier
     
     def grow(self):
         if CONFIG['grow']:
@@ -92,15 +137,17 @@ class Ball:
         # Gradually reduce angular velocity
         self.angular_velocity *= 0.99
         
-        self.trail.insert(0, (Vector2(self.pos.x, self.pos.y), 0.4))
+        # Add current position and rotation to trail
+        self.trail.insert(0, (Vector2(self.pos.x, self.pos.y), 0.4, self.rotation))
         if len(self.trail) > self.trail_length:
             self.trail.pop()
         
         for i in range(len(self.trail)):
-            self.trail[i] = (self.trail[i][0], max(0, self.trail[i][1] - dt * 2))
+            pos, alpha, rot = self.trail[i]
+            self.trail[i] = (pos, max(0, alpha - dt * 2), rot)
     
     def draw(self, screen: pygame.Surface):
-        for pos, alpha in self.trail:
+        for pos, alpha, rotation in self.trail:
             if not CONFIG['use_icon'] or not self.icon:
                 # Draw regular circle trail
                 radius = self.radius * alpha
@@ -109,11 +156,13 @@ class Ball:
                 pygame.draw.circle(surf, color, (radius, radius), radius)
                 screen.blit(surf, (int(pos.x - radius), int(pos.y - radius)))
             else:
-                # Draw icon trail with transparency
+                # Draw rotating icon trail with transparency
                 scaled_icon = self.icon.copy()
                 scaled_icon.set_alpha(int(255 * alpha))
-                icon_rect = scaled_icon.get_rect(center=(pos.x, pos.y))
-                screen.blit(scaled_icon, icon_rect)
+                # Rotate the trail icon
+                rotated_icon = pygame.transform.rotate(scaled_icon, rotation)
+                icon_rect = rotated_icon.get_rect(center=(pos.x, pos.y))
+                screen.blit(rotated_icon, icon_rect)
         
         if not CONFIG['use_icon'] or not self.icon:
             # Draw regular circle ball
