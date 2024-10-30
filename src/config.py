@@ -16,6 +16,9 @@ CONFIG = {
     'use_icon': True,     # Whether to use icon.png instead of circle
     'icon_size': 64,      # Size of the icon in pixels (both width and height)
     'bg_opacity': 0.5,    # Background video opacity (0.0 to 1.0)
+    'tumble': True,       # Whether the ball/icon should spin when bouncing
+    'tumble_velocity': 720.0,  # Degrees per second for tumbling
+    'minimum_bounce_angle': 20.0,  # Minimum angle (in degrees) for bounces to prevent rolling
 }
 
 # Calculate maximum ring radius to fit window

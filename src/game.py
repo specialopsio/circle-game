@@ -34,6 +34,8 @@ class Game:
         self.bg_surface = None
         if os.path.exists('bg.mp4'):
             self.setup_video_background()
+            # Capture first frame but don't start playing
+            self.update_video_background(force_first_frame=True)
     
     def setup_video_background(self):
         """Initialize video background if bg.mp4 exists"""
@@ -50,9 +52,13 @@ class Game:
             print(f"Warning: Error setting up video background: {str(e)}")
             self.bg_video = None
     
-    def update_video_background(self):
+    def update_video_background(self, force_first_frame=False):
         """Update the video frame"""
         if self.bg_video is None or self.bg_surface is None:
+            return
+        
+        # Only update video if game has started or we're forcing first frame
+        if not (self.game_started or force_first_frame):
             return
         
         ret, frame = self.bg_video.read()
@@ -75,24 +81,20 @@ class Game:
             x_offset = max(0, (new_width - self.width) // 2)
             frame = frame[:, x_offset:x_offset + self.width] if new_width > self.width else frame
             
-            # Convert from BGR to RGBA
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+            # Create a surface for the frame
+            video_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
             
-            # Apply opacity
-            frame[:, :, 3] = int(255 * CONFIG['bg_opacity'])
+            # Convert frame to pygame surface
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_surface = pygame.surfarray.make_surface(frame_rgb.swapaxes(0, 1))
             
-            # Convert to pygame surface with alpha
-            video_surface = pygame.surface.Surface((frame.shape[1], frame.shape[0]), pygame.SRCALPHA)
-            pygame_array = pygame.surfarray.pixels_alpha(video_surface)
-            pygame_array[:] = frame[:, :, 3].T
-            del pygame_array
+            # Create a surface for the alpha channel
+            alpha_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            alpha_surface.fill((255, 255, 255, int(255 * CONFIG['bg_opacity'])))
             
-            pygame_surface_rgb = pygame.surfarray.make_surface(frame[:, :, :3].swapaxes(0, 1))
-            video_surface.blit(pygame_surface_rgb, (0, 0))
-            
-            # Scale to fit screen if needed
-            if video_surface.get_size() != (self.width, self.height):
-                video_surface = pygame.transform.scale(video_surface, (self.width, self.height))
+            # Blit the frame and apply alpha
+            video_surface.blit(frame_surface, (0, 0))
+            video_surface.blit(alpha_surface, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
             
             self.bg_surface = video_surface
     
@@ -120,6 +122,9 @@ class Game:
         # Give the ball an initial bounce
         self.ball.vel = Vector2(0, -1).normalize() * CONFIG['ball_speed']
         self.audio.reset_song_sequence()
+        # Reset video to start
+        if self.bg_video is not None:
+            self.bg_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
     
     def get_innermost_active_ring(self) -> int:
         for i, ring in enumerate(self.rings):
