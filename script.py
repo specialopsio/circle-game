@@ -1,4 +1,7 @@
 import pygame
+pygame.init()
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+
 import math
 import random
 from dataclasses import dataclass
@@ -6,21 +9,23 @@ from typing import List, Tuple
 import numpy as np
 import colorsys
 import time
+import os
 
 # Configuration variables
 CONFIG = {
     'width': 720,         # Window width
-    'height': 1280,        # Window height
-    'rings': 25,           # Number of rings
-    'rotation': 1.5,       # Base rotation speed
-    'ball_speed': 500,     # Initial ball speed
-    'offset': 0.1,         # Rotation offset between rings
-    'grow': True,          # Whether ball grows on collision
-    'grow_size': 0.005,      # How much the ball grows on collision (pixels)
-    'thickness': 2,        # Ring thickness
-    'spacing': 15,         # Spacing between rings
+    'height': 1280,       # Window height
+    'rings': 25,          # Number of rings
+    'rotation': 1.5,      # Base rotation speed
+    'ball_speed': 500,    # Initial ball speed
+    'offset': 0.1,        # Rotation offset between rings
+    'grow': True,         # Whether ball grows on collision
+    'grow_size': 0.005,   # How much the ball grows on collision (pixels)
+    'thickness': 2,       # Ring thickness
+    'spacing': 15,        # Spacing between rings
     'gap_size': .75,      # Gap size in radians (0.25 = PI/4 = 45 degrees)
-    'max_ring_radius': 0,  # Will be calculated based on window size
+    'max_ring_radius': 0, # Will be calculated based on window size
+    'gravity': 0.0,       # Gravity affecting the ball (pixels/s²)
 }
 
 # Calculate maximum ring radius to fit window
@@ -74,59 +79,74 @@ class Particle:
 
 class AudioManager:
     def __init__(self):
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        self.bounce = None
+        self.song = None
+        self.song_snippets: List[pygame.mixer.Sound] = []
+        self.song_channel = None
+        self.bounce_channel = None
+        self.bounce_count = 0  # To track the number of bounces
+        
+        # Initialize audio
         try:
+            print("Attempting to load audio files...")
             self.bounce = pygame.mixer.Sound('bounce.mp3')
             self.song = pygame.mixer.Sound('song.mp3')
-        except:
-            print("Warning: Could not load audio files")
-            self.bounce = None
-            self.song = None
+            print("Successfully loaded audio files")
+            
+            # Set up channels
+            self.song_channel = pygame.mixer.Channel(0)
+            self.bounce_channel = pygame.mixer.Channel(1)
+            
+            if self.song_channel and self.bounce_channel:
+                self.song_channel.set_volume(0.7)
+                self.bounce_channel.set_volume(0.7)
+            
+            # Split the song into one-second snippets
+            try:
+                print("Attempting to create song snippets...")
+                import pygame.sndarray
+                song_array = pygame.sndarray.array(self.song)
+                sample_rate = 44100  # Hz
+                num_channels = self.song.get_num_channels()
+                samples_per_second = sample_rate * num_channels
+                total_samples = song_array.shape[0]
+                total_seconds = total_samples // samples_per_second
+                print(f"Song length: {total_seconds} seconds")
+                
+                for i in range(total_seconds):
+                    start = i * samples_per_second
+                    end = start + samples_per_second
+                    snippet_array = song_array[start:end]
+                    snippet = pygame.sndarray.make_sound(snippet_array)
+                    self.song_snippets.append(snippet)
+                print(f"Successfully created {len(self.song_snippets)} snippets")
+            except Exception as e:
+                print(f"Warning: Could not create song snippets: {e}")
+                # Fallback: just play the whole song
+                self.song_snippets = [self.song]
         
-        self.song_channel = pygame.mixer.Channel(0)
-        self.bounce_channel = pygame.mixer.Channel(1)
+        except Exception as e:
+            print(f"Warning: Could not initialize audio: {e}")
+            print("Current working directory:", os.path.abspath(os.curdir))
         
-        if self.song_channel and self.bounce_channel:
-            self.song_channel.set_volume(0.7)
-            self.bounce_channel.set_volume(0.7)
-        
-        self.current_second = 0
         self.last_collision_time = 0
         self.collision_cooldown = 0.1
-        
-        # Load the song into a numpy array for slicing
-        if self.song:
-            try:
-                import pygame.sndarray
-                self.song_array = pygame.sndarray.array(self.song)
-                self.sample_rate = 44100  # Standard sample rate
-                self.samples_per_second = self.sample_rate * 2  # Stereo, so *2
-            except:
-                print("Warning: Could not load song into array")
-                self.song_array = None
     
     def play_song_snippet(self):
-        if self.song and self.song_channel and self.song_array is not None:
+        if self.song_snippets and self.song_channel:
             current_time = time.time()
             if current_time - self.last_collision_time > self.collision_cooldown:
-                # Calculate start and end samples for the current second
-                start_sample = self.current_second * self.samples_per_second
-                end_sample = start_sample + self.samples_per_second
-                
-                if start_sample < len(self.song_array):
-                    # Create a new sound from the slice
-                    snippet = pygame.sndarray.make_sound(
-                        self.song_array[start_sample:end_sample]
-                    )
-                    self.song_channel.play(snippet)
-                    self.current_second += 1
-                    self.last_collision_time = current_time
-                else:
-                    # Loop back to beginning if we've reached the end
-                    self.current_second = 0
+                # Play the snippet corresponding to the current bounce count
+                snippet_index = self.bounce_count % len(self.song_snippets)
+                print(f"Playing song snippet {snippet_index + 1}")
+                self.song_channel.stop()
+                self.song_snippets[snippet_index].play()
+                self.bounce_count += 1
+                self.last_collision_time = current_time
     
     def play_bounce(self):
         if self.bounce and self.bounce_channel:
+            print("Playing bounce sound")
             self.bounce_channel.play(self.bounce)
 
 class Ball:
@@ -172,6 +192,10 @@ class Ball:
             self.radius += CONFIG['grow_size']
     
     def update(self, dt: float):
+        # Apply gravity to vertical velocity
+        if CONFIG['gravity'] != 0.0:
+            self.vel.y += CONFIG['gravity'] * dt
+        
         self.pos += self.vel * dt
         
         # Update trail
@@ -182,7 +206,7 @@ class Ball:
         # Update trail fade
         for i in range(len(self.trail)):
             self.trail[i] = (self.trail[i][0], max(0, self.trail[i][1] - dt * 2))
-
+    
     def draw(self, screen: pygame.Surface):
         # Draw trail
         for pos, alpha in self.trail:
@@ -256,7 +280,7 @@ class Ring:
         
         for particle in self.particles:
             particle.draw(screen)
-
+    
     def check_collision(self, ball_pos: Vector2, ball_radius: float) -> Tuple[bool, Vector2]:
         to_center = self.center - ball_pos
         distance = to_center.length()
@@ -342,7 +366,7 @@ class Game:
                     # Ball is in gap - destroy ring
                     active_ring.destroyed = True
                     active_ring.create_destruction_particles()
-                    self.audio.play_bounce()
+                    self.audio.play_bounce()  # Play bounce sound upon destroying the ring
                     self.active_ring_index += 1  # Move to next ring
                     return True
                 else:
