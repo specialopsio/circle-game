@@ -96,7 +96,6 @@ class AudioManager:
                 self.song_channel.stop()
             
             if current_time - self.last_collision_time > self.collision_cooldown:
-                print(f"Playing song snippet {self.current_snippet_index + 1}")
                 self.song_channel.stop()
                 self.song_snippets[self.current_snippet_index].play()
                 
@@ -109,7 +108,6 @@ class AudioManager:
     
     def play_bounce(self):
         if self.bounce and self.bounce_channel:
-            print("Playing bounce sound")
             self.bounce_channel.play(self.bounce)
     
     def reset_song_sequence(self):

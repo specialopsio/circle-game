@@ -6,6 +6,7 @@ from src.utils.vector import Vector2
 from src.entities.ball import Ball
 from src.entities.ring import Ring
 from src.managers.audio_manager import AudioManager
+from src.recorder import GameRecorder
 from typing import List, Tuple
 
 class Game:
@@ -18,6 +19,8 @@ class Game:
         
         self.center = Vector2(self.width/2, self.height/2)
         self.ball = Ball(self.center, 8)
+        # Give the ball an initial bounce
+        self.ball.vel = Vector2(0, -1).normalize() * CONFIG['ball_speed']
         self.rings: List[Ring] = []
         self.audio = AudioManager()
         self.active_ring_index = 0  # Track the innermost active ring
@@ -25,6 +28,9 @@ class Game:
         
         self.clock = pygame.time.Clock()
         self.game_won = False
+        
+        # Initialize the recorder
+        self.recorder = GameRecorder(self.width, self.height)
     
     def get_ring_color(self, index: int, total: int) -> Tuple[int, int, int]:
         hue = index / total
@@ -122,6 +128,8 @@ class Game:
             text_rect = text.get_rect(center=(self.width/2, self.height/2))
             self.screen.blit(text, text_rect)
         
+        # Capture frame before display flip
+        self.recorder.capture_frame(self.screen)
         pygame.display.flip()
     
     def handle_events(self):
@@ -134,7 +142,13 @@ class Game:
         running = True
         last_time = pygame.time.get_ticks()
         
+        # Target 60 FPS
+        target_fps = 60
+        target_frame_time = 1000 / target_fps  # in milliseconds
+        
         while running:
+            frame_start = pygame.time.get_ticks()
+            
             current_time = pygame.time.get_ticks()
             dt = min((current_time - last_time) / 1000.0, 0.1)
             last_time = current_time
@@ -143,6 +157,14 @@ class Game:
             self.update_game_state(dt)
             self.draw()
             
-            self.clock.tick(60)
+            # Calculate how long to wait
+            frame_time = pygame.time.get_ticks() - frame_start
+            if frame_time < target_frame_time:
+                pygame.time.wait(int(target_frame_time - frame_time))
+            
+            # Update display at exactly 60fps
+            self.clock.tick(target_fps)
         
+        # Stop recording before quitting
+        self.recorder.stop_recording()
         pygame.quit()
