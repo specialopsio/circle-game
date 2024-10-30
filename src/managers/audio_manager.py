@@ -11,16 +11,23 @@ class AudioManager:
         self.bounce_channel = None
         self.current_snippet_index = 0
         
-        # Initialize audio
+        # Initialize audio with a higher quality
         try:
             import pygame
+            pygame.mixer.init(
+                frequency=44100,
+                size=-16,
+                channels=2,
+                buffer=1024,
+                allowedchanges=0
+            )
             print("=== Audio Initialization ===")
             print("Attempting to load audio files...")
             self.bounce = pygame.mixer.Sound('bounce.mp3')
             self.song = pygame.mixer.Sound('song.mp3')
             print("Successfully loaded audio files")
             
-            # Set up channels
+            # Set up channels with higher quality
             self.song_channel = pygame.mixer.Channel(0)
             self.bounce_channel = pygame.mixer.Channel(1)
             
