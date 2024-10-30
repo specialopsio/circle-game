@@ -11,15 +11,15 @@ import time
 CONFIG = {
     'width': 720,         # Window width
     'height': 1280,        # Window height
-    'rings': 50,           # Number of rings
-    'rotation': 2.0,       # Base rotation speed
-    'ball_speed': 1000,     # Initial ball speed
+    'rings': 25,           # Number of rings
+    'rotation': 1.5,       # Base rotation speed
+    'ball_speed': 500,     # Initial ball speed
     'offset': 0.1,         # Rotation offset between rings
-    'grow': False,          # Whether ball grows on collision
-    'grow_size': 0.5,      # How much the ball grows on collision (pixels)
+    'grow': True,          # Whether ball grows on collision
+    'grow_size': 0.005,      # How much the ball grows on collision (pixels)
     'thickness': 2,        # Ring thickness
     'spacing': 15,         # Spacing between rings
-    'gap_size': .5,      # Gap size in radians (0.25 = PI/4 = 45 degrees)
+    'gap_size': .75,      # Gap size in radians (0.25 = PI/4 = 45 degrees)
     'max_ring_radius': 0,  # Will be calculated based on window size
 }
 
@@ -91,17 +91,39 @@ class AudioManager:
             self.bounce_channel.set_volume(0.7)
         
         self.current_second = 0
-        self.song_length = 0
+        self.last_collision_time = 0
+        self.collision_cooldown = 0.1
+        
+        # Load the song into a numpy array for slicing
         if self.song:
-            self.song_length = self.song.get_length()
+            try:
+                import pygame.sndarray
+                self.song_array = pygame.sndarray.array(self.song)
+                self.sample_rate = 44100  # Standard sample rate
+                self.samples_per_second = self.sample_rate * 2  # Stereo, so *2
+            except:
+                print("Warning: Could not load song into array")
+                self.song_array = None
     
     def play_song_snippet(self):
-        if self.song and self.song_channel:
-            start_pos = self.current_second
-            self.song_channel.stop()
-            self.song.play()
-            pygame.time.wait(50)  # Small delay to ensure clean playback
-            self.current_second = (self.current_second + 1) % int(self.song_length)
+        if self.song and self.song_channel and self.song_array is not None:
+            current_time = time.time()
+            if current_time - self.last_collision_time > self.collision_cooldown:
+                # Calculate start and end samples for the current second
+                start_sample = self.current_second * self.samples_per_second
+                end_sample = start_sample + self.samples_per_second
+                
+                if start_sample < len(self.song_array):
+                    # Create a new sound from the slice
+                    snippet = pygame.sndarray.make_sound(
+                        self.song_array[start_sample:end_sample]
+                    )
+                    self.song_channel.play(snippet)
+                    self.current_second += 1
+                    self.last_collision_time = current_time
+                else:
+                    # Loop back to beginning if we've reached the end
+                    self.current_second = 0
     
     def play_bounce(self):
         if self.bounce and self.bounce_channel:
@@ -200,7 +222,7 @@ class Ring:
             self.particles.append(Particle(pos, vel, lifetime, self.color))
     
     def is_ball_in_gap(self, ball_angle: float) -> bool:
-        # Normalize angles
+        # Normalize angles to be between 0 and 2π
         normalized_ball = (ball_angle - self.rotation) % (2 * math.pi)
         half_gap = self.gap_size / 2
         
@@ -297,8 +319,8 @@ class Game:
             to_center = active_ring.center - self.ball.pos
             distance = to_center.length()
             
-            # If ball is outside the active ring, bounce it back
-            if distance > active_ring.radius - self.ball.radius:
+            # If ball is outside the active ring's radius
+            if distance > active_ring.radius + self.ball.radius:
                 normal = to_center.normalize()
                 self.ball.bounce(normal)
                 self.audio.play_song_snippet()
@@ -311,15 +333,17 @@ class Game:
             active_ring = self.rings[self.active_ring_index]
             to_center = active_ring.center - self.ball.pos
             distance = to_center.length()
-            angle = math.atan2(to_center.y, to_center.x)
+            angle = math.atan2(-to_center.y, -to_center.x) + math.pi  # Corrected angle calculation
             
-            # Check if ball is near the ring's radius
-            if abs(distance - active_ring.radius) < self.ball.radius:
+            # Widen the detection zone for gaps
+            gap_detection_width = self.ball.radius + active_ring.thickness
+            if abs(distance - active_ring.radius) < gap_detection_width:
                 if active_ring.is_ball_in_gap(angle):
                     # Ball is in gap - destroy ring
                     active_ring.destroyed = True
                     active_ring.create_destruction_particles()
                     self.audio.play_bounce()
+                    self.active_ring_index += 1  # Move to next ring
                     return True
                 else:
                     # Bounce off ring
