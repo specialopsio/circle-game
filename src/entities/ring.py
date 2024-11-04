@@ -19,10 +19,12 @@ class Ring:
         self.color = color
         self.thickness = CONFIG['thickness']
         self.gap_tolerance = 0.1
+        self.force_display = False
+        self.two_pi = 2 * math.pi
     
     def create_destruction_particles(self):
         for _ in range(self.destruction_particles):
-            angle = random.uniform(0, math.pi * 2)
+            angle = random.uniform(0, self.two_pi)
             speed = random.uniform(100, 300)
             direction = Vector2(math.cos(angle), math.sin(angle))
             pos = self.center + direction * self.radius
@@ -31,11 +33,11 @@ class Ring:
             self.particles.append(Particle(pos, vel, lifetime, self.color))
     
     def is_ball_in_gap(self, ball_angle: float) -> bool:
-        normalized_ball = (ball_angle - self.rotation) % (2 * math.pi)
+        normalized_ball = (ball_angle - self.rotation) % self.two_pi
         half_gap = self.gap_size / 2
         
         in_main_gap = normalized_ball <= half_gap + self.gap_tolerance or \
-                     normalized_ball >= (2 * math.pi - half_gap - self.gap_tolerance)
+                     normalized_ball >= (self.two_pi - half_gap - self.gap_tolerance)
         
         return in_main_gap
     
@@ -46,9 +48,9 @@ class Ring:
         self.particles = [p for p in self.particles if p.update(dt)]
     
     def draw(self, screen: pygame.Surface):
-        if not self.destroyed:
+        if not self.destroyed or self.force_display:
             start_angle = self.rotation + self.gap_size / 2
-            end_angle = self.rotation + math.pi * 2 - self.gap_size / 2
+            end_angle = self.rotation + self.two_pi - self.gap_size / 2
             
             for offset in range(self.thickness):
                 radius = self.radius - offset
