@@ -28,6 +28,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.game_won = False
         self.game_started = False
+        self.two_pi = math.pi * 2
         
         # Video background setup
         self.bg_video = None
@@ -149,17 +150,28 @@ class Game:
     def check_gap_collision(self):
         if self.active_ring_index < len(self.rings):
             active_ring = self.rings[self.active_ring_index]
+
             to_center = active_ring.center - self.ball.pos
+            #to_center.y *= -1.0
+
+            from_center = self.ball.pos - active_ring.center
+            from_center.y *= -1.0
+
             distance = to_center.length()
-            angle = math.atan2(-to_center.y, -to_center.x) + math.pi
+            angle = (math.atan2(from_center.y, from_center.x) + self.two_pi) % self.two_pi
             
             gap_detection_width = self.ball.radius + active_ring.thickness
-            if abs(distance - active_ring.radius) < gap_detection_width:
+
+            if abs(active_ring.radius - distance) < gap_detection_width:
+                #print(f"ball: {from_center},  radius: {distance}, angle: {angle * 360/self.two_pi}, active ring: {self.active_ring_index}, radius: {active_ring.radius}, gap: {(active_ring.rotation % self.two_pi) * 360/self.two_pi}")  
                 if active_ring.is_ball_in_gap(angle):
                     active_ring.destroyed = True
+                    #print(f"ring {self.active_ring_index}/{len(self.rings)} with radius {active_ring.radius} is destroyed")
+                    self.active_ring_index += 1
+                    #if self.active_ring_index == len(self.rings):
+                    #    active_ring.force_display = True
                     active_ring.create_destruction_particles()
                     self.audio.play_bounce()
-                    self.active_ring_index += 1
                     return True
                 else:
                     normal = to_center.normalize()
@@ -174,7 +186,6 @@ class Game:
         
         if self.check_ball_containment():
             return
-        
         self.check_gap_collision()
     
     def update_game_state(self, dt: float):
@@ -182,7 +193,7 @@ class Game:
             return
             
         if not self.game_won:
-            self.ball.update(dt)
+            self.ball.update(dt, None if self.active_ring_index >= len(self.rings) else self.rings[self.active_ring_index])
             
             base_speed = CONFIG['rotation']
             for i, ring in enumerate(self.rings):
