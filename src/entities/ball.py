@@ -4,6 +4,7 @@ import pygame
 import random
 import math
 from typing import List, Tuple
+from src.entities.ring import Ring
 
 class Ball:
     def __init__(self, pos: Vector2, radius: float):
@@ -77,10 +78,7 @@ class Ball:
             # Regular bounce logic with improved angle handling
             dot_product = self.vel.x * normal.x + self.vel.y * normal.y
             bounce_angle = math.degrees(math.acos(max(-1.0, min(1.0, dot_product / self.vel.length()))))
-            
-            # Add more randomness for shallow angles
-            random_angle = random.uniform(-15, 15) if bounce_angle < 45 else random.uniform(-5, 5)
-            
+                        
             if bounce_angle < CONFIG['minimum_bounce_angle']:
                 # More aggressive angle adjustment for shallow bounces
                 perpendicular = Vector2(-normal.y, normal.x)
@@ -93,24 +91,31 @@ class Ball:
                 )
                 self.vel = new_dir.normalize() * (CONFIG['ball_speed'] * random.uniform(1.0, 1.2))
             else:
+                # Add more randomness for shallow angles
+                random_angle = (random.uniform(-15, 15) if bounce_angle < 45 or bounce_angle > 135 else random.uniform(-5, 5))
+
                 # Regular bounce with added randomness
                 rot_angle = math.radians(random_angle)
                 cos_theta = math.cos(rot_angle)
                 sin_theta = math.sin(rot_angle)
+
+                #print("bounce angle + rnd", random_angle+bounce_angle)
                 
                 rotated_normal = Vector2(
                     normal.x * cos_theta - normal.y * sin_theta,
                     normal.x * sin_theta + normal.y * cos_theta
                 )
                 
-                dot_product = self.vel.x * rotated_normal.x + self.vel.y * rotated_normal.y
-                self.vel = Vector2(
-                    self.vel.x - 2 * dot_product * rotated_normal.x,
-                    self.vel.y - 2 * dot_product * rotated_normal.y
-                )
+                #dot_product = self.vel.x * rotated_normal.x + self.vel.y * rotated_normal.y
+                #self.vel = Vector2(
+                #    self.vel.x - 2 * dot_product * rotated_normal.x,
+                #    self.vel.y - 2 * dot_product * rotated_normal.y
+                #)
+
+                speed = self.vel.length() * random.uniform(0.95, 1.05)
+                self.vel = rotated_normal 
                 
                 # Ensure minimum velocity and add some randomness
-                speed = self.vel.length() * random.uniform(0.95, 1.05)
                 self.vel = self.vel.normalize() * max(speed, CONFIG['ball_speed'] * 0.8)
         
         # Apply tumble if enabled
@@ -123,12 +128,28 @@ class Ball:
         if CONFIG['grow']:
             self.radius += CONFIG['grow_size']
     
-    def update(self, dt: float):
+    def update(self, dt: float, active_ring: Ring = None):
         if CONFIG['gravity'] != 0.0:
             self.vel.y += CONFIG['gravity'] * dt
         
+        #if active_ring != None:
+        #    print(self.pos, self.pos - active_ring.center, self.vel, dt)
+        #else:
+        #    print(self.pos, self.pos, self.vel, dt)
+
         self.pos += self.vel * dt
-        
+             
+        if active_ring != None:
+            # check pos w.r.t. active ring
+            ball_to_center = self.pos - active_ring.center
+            ball_distance = ball_to_center.length()
+            if ball_distance > active_ring.radius:
+                # correct position
+                angle = math.atan2(ball_to_center.y, ball_to_center.x)
+                self.pos.x = math.cos(angle) * ball_distance + active_ring.center.x
+                self.pos.y = math.sin(angle) * ball_distance + active_ring.center.y
+                print(f"Fixing position")
+
         # Update rotation
         self.rotation += self.angular_velocity * dt
         # Keep rotation between 0 and 360 degrees
