@@ -2,7 +2,7 @@ import pygame
 import colorsys
 import math
 import os
-import cv2
+# import cv2
 from src.config import CONFIG
 from src.utils.vector import Vector2
 from src.entities.ball import Ball
